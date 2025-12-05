@@ -1,0 +1,409 @@
+PROJET CHEMINS SUR GRILLE, CUBE 3D ET CUBE 4D
+=============================================
+
+Ce document explique en détail le fonctionnement de l'application "chemins_grille" :
+- comment on modélise le problème de chemins,
+- comment on calcule tous les chemins possibles,
+- comment on compte les mouvements (haut, gauche, droite),
+- comment on affiche les chemins sur la grille, le cube 3D (8 sommets) et le cube 4D (16 sommets).
+
+---------------------------------------------------------------------
+1. IDÉE DE BASE : MODÉLISER EN GRAPHE
+---------------------------------------------------------------------
+
+Dans tous les cas (grille, cube 3D, cube 4D), on utilise la même idée :
+
+1. On définit un ensemble de sommets (nœuds).
+2. On définit quelles paires de sommets sont reliées par une arête (mouvement autorisé).
+3. Un chemin est alors une suite de sommets (v0, v1, ..., vk) telle que chaque (vi, vi+1) soit relié par une arête.
+
+Exemples :
+- Grille 2D : sommets = points (x, y) avec 0 ≤ x ≤ m, 0 ≤ y ≤ n.
+- Cube 3D : sommets = (x, y, z) avec x, y, z ∈ {0, 1} (8 sommets).
+- Hypercube 4D : sommets = (x, y, z, t) avec x, y, z, t ∈ {0, 1} (16 sommets).
+
+Une fois le graphe défini, on utilise un algorithme de recherche en profondeur (DFS) avec retour arrière (backtracking) pour générer tous les chemins désirés.
+
+---------------------------------------------------------------------
+2. ALGORITHME GÉNÉRAL : DFS + BACKTRACKING
+---------------------------------------------------------------------
+
+Objectif : trouver tous les chemins simples (sans repasser deux fois par le même sommet) entre un sommet de départ S et un sommet d'arrivée T.
+
+Idée de l'algorithme :
+
+- On garde un tableau/list "chemin" qui contient la suite de sommets visités actuellement.
+- On garde un ensemble "visites" qui contient les sommets déjà utilisés dans le chemin courant.
+- À chaque étape, on prolonge le chemin vers un voisin non encore visité.
+- Quand on arrive au sommet d'arrivée T, on enregistre une copie du chemin.
+
+Pseudo-code :
+
+    def dfs(current, goal, chemin, visites):
+        if current == goal:
+            enregistrer_une_copie(chemin)
+            return
+
+        pour chaque voisin nxt de current:
+            si nxt n'est pas dans visites:
+                visites.ajouter(nxt)
+                chemin.ajouter(nxt)
+                dfs(nxt, goal, chemin, visites)
+                chemin.retirer_le_dernier()   # retour en arrière
+                visites.retirer(nxt)
+
+Remarques importantes :
+- L'ensemble "visites" empêche de faire des cycles (on ne repasse jamais par le même sommet).
+- Les instructions "ajouter", puis plus tard "retirer" forment le mécanisme de BACKTRACKING : on essaie un chemin, puis on revient en arrière pour essayer un autre.
+
+Cet algorithme est utilisé tel quel sur :
+- la grille 2D (chemins de (0,0) à (m,n)),
+- le cube 3D (chemins de a000 à a111).
+
+Sur le cube 4D, on utilise une variante plus simple (voir section 5) pour contrôler le nombre de chemins.
+
+---------------------------------------------------------------------
+3. GRILLE 2D : CHEMINS DE (0,0) À (m,n)
+---------------------------------------------------------------------
+
+3.1 Sommets et directions
+
+- Sommets : tous les points (x, y) tels que 0 ≤ x ≤ m, 0 ≤ y ≤ n.
+- Départ : (0, 0)
+- Arrivée : (m, n)
+
+Les mouvements autorisés sont :
+- droite  : (1, 0)
+- haut    : (0, 1)
+- gauche  : (-1, 0)
+- bas     : (0, -1)
+
+Dans le code :
+
+    directions = [
+        (1, 0),   # droite
+        (0, 1),   # haut
+        (-1, 0),  # gauche
+        (0, -1),  # bas
+    ]
+
+On autorise donc le chemin à revenir en arrière, mais jamais à revisiter exactement le même point.
+
+3.2 Fonction de validité d'un mouvement
+
+    def is_valid(x, y, visited):
+        return 0 <= x < cols and 0 <= y < rows and (x, y) not in visited
+
+Ici :
+- cols = m + 1 (nombre de colonnes),
+- rows = n + 1 (nombre de lignes).
+
+La condition (x, y) not in visited garantit que le chemin reste SIMPLE (sans cycle).
+
+3.3 DFS sur la grille
+
+Le DFS pour la grille ressemble à ceci :
+
+    def dfs(current, visited, path):
+        if current == end:
+            all_paths.append(list(path))
+            return
+
+        x, y = current
+        for dx, dy in directions:
+            nx, ny = x + dx, y + dy
+            if is_valid(nx, ny, visited):
+                next_point = (nx, ny)
+                visited.add(next_point)
+                path.append(next_point)
+                dfs(next_point, visited, path)
+                path.pop()              # on enlève le dernier point
+                visited.remove(next_point)
+
+Au départ :
+- visited = { (0,0) }
+- path = [ (0,0) ]
+
+L'algorithme énumère alors tous les chemins simples de (0,0) à (m,n).
+
+---------------------------------------------------------------------
+4. CALCUL DES STATISTIQUES DE DIRECTIONS SUR LA GRILLE
+---------------------------------------------------------------------
+
+Il y a deux types de statistiques :
+- des statistiques GLOBALES (sur tous les chemins),
+- des statistiques PAR CHEMIN (pour le chemin sélectionné).
+
+4.1 Statistiques globales : combien de chemins ont au moins un mouvement vers le haut/gauche ?
+
+Dans la méthode update_global_direction_stats(), on parcourt chaque chemin et on regarde s'il contient au moins un segment :
+- vers le haut    : (dx, dy) = (0, 1)
+- vers la gauche  : (dx, dy) = (-1, 0)
+
+Code simplifié :
+
+    count_with_up = 0
+    count_with_left = 0
+
+    for path in self.paths:
+        has_up = False
+        has_left = False
+        for (x1, y1), (x2, y2) in zip(path, path[1:]):
+            dx = x2 - x1
+            dy = y2 - y1
+            if dx == 0 and dy == 1:
+                has_up = True
+            elif dx == -1 and dy == 0:
+                has_left = True
+
+        if has_up:
+            count_with_up += 1
+        if has_left:
+            count_with_left += 1
+
+À la fin, on connaît :
+- le nombre total de chemins,
+- le nombre de chemins qui ont AU MOINS un mouvement vers le haut,
+- le nombre de chemins qui ont AU MOINS un mouvement vers la gauche.
+
+4.2 Statistiques par chemin : nombre de mouvements haut/gauche/droite
+
+Quand l'utilisateur clique sur une vignette, on sélectionne un chemin particulier et on compte les mouvements dans chaque direction :
+
+    up_count = left_count = right_count = 0
+    for (x1, y1), (x2, y2) in zip(path, path[1:]):
+        dx = x2 - x1
+        dy = y2 - y1
+        if dx == 1 and dy == 0:      # droite
+            right_count += 1
+        elif dx == -1 and dy == 0:   # gauche
+            left_count += 1
+        elif dx == 0 and dy == 1:    # haut
+            up_count += 1
+
+Ensuite, on affiche dans la zone de texte :
+- le numéro du chemin sélectionné,
+- toutes les coordonnées du chemin,
+- le nombre de mouvements
+  - Haut (vert),
+  - Gauche (bleu),
+  - Droite (gris foncé),
+- puis les statistiques globales.
+
+---------------------------------------------------------------------
+5. CUBE 3D (8 SOMMETS) : CHEMINS DE a000 À a111
+---------------------------------------------------------------------
+
+5.1 Représentation des sommets
+
+On code les sommets du cube par des triples de bits (x, y, z) ∈ {0,1}³ :
+- a000 = (0,0,0)
+- a100 = (1,0,0)
+- a010 = (0,1,0)
+- a110 = (1,1,0)
+- a001 = (0,0,1)
+- a101 = (1,0,1)
+- a011 = (0,1,1)
+- a111 = (1,1,1)
+
+Deux sommets sont reliés par une arête si leurs coordonnées diffèrent sur un seul axe (exactement un bit différent).
+
+5.2 Fonction "voisins" du cube
+
+    def neighbors(v):
+        x, y, z = v
+        res = []
+        for dx, dy, dz in ((1, 0, 0), (-1, 0, 0),
+                           (0, 1, 0), (0,-1, 0),
+                           (0, 0, 1), (0, 0,-1)):
+            nx, ny, nz = x + dx, y + dy, z + dz
+            if nx in (0,1) and ny in (0,1) and nz in (0,1):
+                res.append((nx, ny, nz))
+        return res
+
+5.3 DFS sur le cube
+
+Le DFS est le même que pour la grille, mais appliqué à ce petit graphe de 8 sommets :
+
+    start = (0,0,0)   # a000
+    end   = (1,1,1)   # a111
+
+    def dfs(current, visited, path):
+        if current == end:
+            all_paths.append(list(path))
+            return
+        for nxt in neighbors(current):
+            if nxt in visited:
+                continue
+            visited.add(nxt)
+            path.append(nxt)
+            dfs(nxt, visited, path)
+            path.pop()
+            visited.remove(nxt)
+
+Ce qui change par rapport à la grille :
+- L'ensemble des sommets est fini et très petit (8 sommets).
+- Les mouvements sont définis par les arêtes du cube en 3D (±1 sur un axe, en restant dans {0,1}).
+
+5.4 Affichage et notation aXYZ
+
+Pour un chemin (suite de (x,y,z)), on fabrique des étiquettes aXYZ :
+
+    labels = [f"a{x}{y}{z}" for (x, y, z) in path]
+    texte = " → ".join(labels)
+
+Cela permet d'expliquer clairement quelle séquence de sommets du cube est suivie.
+
+---------------------------------------------------------------------
+6. CUBE 4D (16 SOMMETS) : HYPERCUBE ET CHEMINS MONOTONES
+---------------------------------------------------------------------
+
+6.1 Sommets de l'hypercube
+
+On ajoute une quatrième coordonnée t ∈ {0,1}. Les sommets sont donc :
+- (x, y, z, t) avec x,y,z,t ∈ {0,1}.
+
+On a 2^4 = 16 sommets, notés aXYZT, par exemple :
+- a0000 = (0,0,0,0)
+- a1000 = (1,0,0,0)
+- ...
+- a1111 = (1,1,1,1)
+
+6.2 Problème de la combinatoire et astuce : chemins monotones
+
+Si on autorisait tous les mouvements (0→1, 1→0), le nombre de chemins possibles entre a0000 et a1111 serait très grand.
+
+Pour garder une structure compréhensible, on impose :
+
+- On part de (0,0,0,0)
+- On arrive à (1,1,1,1)
+- À chaque étape, on choisit une coordonnée qui vaut encore 0 et on la met à 1.
+- On ne fait **jamais** de mouvement 1→0.
+
+Ainsi, les chemins sont **monotones** : chaque coordonnée ne peut passer de 0 à 1 qu'une seule fois.
+
+Conséquences :
+- La longueur d'un chemin est toujours 4 (on "allume" 4 bits).
+- Un chemin correspond exactement à un ordre dans lequel on choisit d'allumer x, y, z, t.
+
+Donc :
+- Nombre de chemins possibles = nombre de permutations de {x,y,z,t} = 4! = 24.
+
+6.3 DFS spécial pour les chemins monotones
+
+Comme on ne revient jamais en arrière (0→1 seulement), un même sommet ne peut pas être revisité.
+On n'a donc pas besoin de l'ensemble "visited".
+
+Algorithme :
+
+    start = (0,0,0,0)
+    end   = (1,1,1,1)
+
+    def dfs(current, path):
+        if current == end:
+            all_paths.append(list(path))
+            return
+
+        x, y, z, t = current
+        coords = [x, y, z, t]
+        for i in range(4):
+            if coords[i] == 0:
+                new_coords = coords.copy()
+                new_coords[i] = 1      # on "allume" cette coordonnée
+                nxt = tuple(new_coords)
+                path.append(nxt)
+                dfs(nxt, path)
+                path.pop()
+
+On retrouve bien les 24 chemins correspondant aux 24 ordres possibles d'allumage des 4 coordonnées.
+
+6.4 Affichage des chemins : étiquettes aXYZT
+
+Même principe que pour le cube 3D, mais avec 4 indices :
+
+    labels = [f"a{x}{y}{z}{t}" for (x, y, z, t) in path]
+    texte = " → ".join(labels)
+
+On voit ainsi très clairement dans quel ordre on passe par les sommets de l'hypercube.
+
+---------------------------------------------------------------------
+7. ASTUCES DE DESSIN ET UTILISATION DE L'ESPACE
+---------------------------------------------------------------------
+
+7.1 Projection du cube 3D en 2D
+
+Pour un sommet (x,y,z) avec x,y,z ∈ {0,1}, on calcule une position "écran" (u,v) :
+
+    u = x + 0.5 * z
+    v = y + 0.5 * z
+
+- Quand z = 0 : point sur le cube de devant.
+- Quand z = 1 : point sur le cube de derrière, décalé vers la droite et vers le bas.
+
+On obtient ainsi deux carrés (z=0 et z=1) reliés par des segments : c'est le dessin classique d'un cube.
+
+Ensuite :
+1. On calcule min(u), max(u), min(v), max(v).
+2. On choisit une échelle unique "scale" pour occuper au maximum la largeur et la hauteur de la case, sans déformer le cube.
+3. On centre le dessin dans le canvas :
+   - on calcule la largeur réelle du dessin = (max_u - min_u) * scale,
+   - on ajoute un décalage (offset_x, offset_y) pour le centrer.
+4. On dessine :
+   - les 12 arêtes du cube en noir,
+   - les sommets en points noirs,
+   - les labels a000, a001, ..., a111,
+   - le chemin en rouge plus épais.
+
+7.2 Projection de l'hypercube 4D en 2D
+
+Pour un sommet (x,y,z,t) :
+1. On projette d'abord (x,y,z) comme dans le cas 3D.
+2. On décale selon t :
+
+    (u', v') = proj3(x,y,z) + (1.5 * t, 0.3 * t)
+
+- Quand t = 0 : cube de gauche.
+- Quand t = 1 : cube de droite, relié au premier par les arêtes 4D.
+
+On obtient alors la représentation standard d'un hypercube : deux cubes reliés.
+
+Ensuite, on fait la même chose que pour le cube 3D :
+- calcul de l'échelle,
+- centrage,
+- dessin de toutes les arêtes (deux sommets qui ne diffèrent que sur une coordonnée),
+- dessin des sommets et des labels a0000, ..., a1111,
+- dessin du chemin en rouge.
+
+7.3 Layout des vignettes
+
+- Mode "grille" et "cube" (3D) :
+  - 3 lignes × 4 colonnes = 12 vignettes par page.
+- Mode "cube4" (4D, 16 sommets) :
+  - 2 lignes × 2 colonnes = 4 vignettes par page.
+  - Chaque vignette est donc plus grande, ce qui permet de bien voir tous les nœuds et les arêtes.
+
+---------------------------------------------------------------------
+8. CONCLUSION
+---------------------------------------------------------------------
+
+Les points importants pour expliquer le projet au professeur sont :
+
+1. MODÉLISATION :
+   - on transforme le problème en un graphe (sommets + arêtes),
+   - chaque type de structure (grille, cube, hypercube) correspond à un choix précis de sommets et de voisins.
+
+2. ALGORITHME :
+   - on utilise la recherche en profondeur (DFS) avec backtracking pour générer tous les chemins simples,
+   - sur la grille et le cube 3D, on interdit de revisiter un sommet grâce à l'ensemble "visited",
+   - sur le cube 4D, on restreint aux chemins monotones (0→1 uniquement), ce qui donne exactement 4! chemins et simplifie l'algorithme.
+
+3. STATISTIQUES :
+   - on parcourt les chemins pour compter les mouvements vers le haut, la gauche, la droite,
+   - on distingue les statistiques globales (tous les chemins) et les statistiques détaillées pour un chemin choisi.
+
+4. AFFICHAGE :
+   - on utilise des projections géométriques 3D→2D et 4D→2D,
+   - on ajuste l'échelle et on centre les dessins pour profiter de tout l'espace de chaque case,
+   - on adapte la grille de vignettes (12 petites cases ou 4 grandes cases) selon le mode.
+
+Avec ces éléments, on peut expliquer non seulement "ce que fait" le programme, mais surtout **comment** et **pourquoi** il le fait de cette manière (choix algorithmiques et mathématiques).

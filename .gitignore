@@ -1,0 +1,13 @@
+# Dossiers générés par PyInstaller
+build/
+dist/
+
+# Exécutables Windows
+*.exe
+
+# Archives zip
+*.zip
+
+# Fichiers Python compilés
+__pycache__/
+*.pyc
